@@ -39,30 +39,29 @@
     });
   }
 
-  function getRegistryUrl() {
-    return document.getElementById("registry-url").value.trim();
-  }
-  function getRef() {
-    return document.getElementById("registry-ref").value.trim();
-  }
-
   async function open(portName) {
     currentRoot = portName;
     rootLabel.textContent = portName;
     overlay.classList.remove("hidden");
-    showStatus("Resolving dependency tree…");
+    showStatus("Resolving dependency tree\u2026");
 
-    const url = getRegistryUrl();
-    const ref = getRef();
-    const depth = depthSlider.value;
-
-    let apiUrl = `/api/depgraph/${encodeURIComponent(portName)}?depth=${depth}&url=${encodeURIComponent(url)}`;
-    if (ref) apiUrl += `&ref=${encodeURIComponent(ref)}`;
+    const depth = parseInt(depthSlider.value) || 4;
+    const appState = window.vcviz && window.vcviz.getState();
 
     try {
-      const res = await fetch(apiUrl);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Request failed");
+      let data;
+
+      if (appState && appState.localMode) {
+        data = await window.vcviz.localBuildDepGraph(portName, depth);
+      } else {
+        const url = document.getElementById("registry-url").value.trim();
+        const ref = document.getElementById("registry-ref").value.trim();
+        let apiUrl = `/api/depgraph/${encodeURIComponent(portName)}?depth=${depth}&url=${encodeURIComponent(url)}`;
+        if (ref) apiUrl += `&ref=${encodeURIComponent(ref)}`;
+        const res = await fetch(apiUrl);
+        data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Request failed");
+      }
 
       graphData = data;
       hideStatus();

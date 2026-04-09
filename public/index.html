@@ -16,23 +16,33 @@
 
   <main>
     <section class="url-bar">
-      <form id="registry-form">
-        <input
-          type="text"
-          id="registry-url"
-          placeholder="GitHub URL or local path, e.g. https://github.com/microsoft/vcpkg  or  C:\vcpkg"
-          spellcheck="false"
-          autocomplete="off"
-        />
-        <input
-          type="text"
-          id="registry-ref"
-          placeholder="Branch / tag"
-          spellcheck="false"
-          autocomplete="off"
-        />
-        <button type="submit" id="load-btn">Explore</button>
-      </form>
+      <div id="source-github" class="source-row">
+        <form id="registry-form">
+          <input
+            type="text"
+            id="registry-url"
+            placeholder="GitHub registry URL, e.g. https://github.com/microsoft/vcpkg"
+            spellcheck="false"
+            autocomplete="off"
+          />
+          <input
+            type="text"
+            id="registry-ref"
+            placeholder="Branch / tag"
+            spellcheck="false"
+            autocomplete="off"
+          />
+          <button type="submit" id="load-btn">Explore</button>
+        </form>
+      </div>
+      <div id="drop-zone" class="drop-zone">
+        <span class="drop-zone-text">or drop a local registry folder here</span>
+      </div>
+      <div id="local-banner" class="local-banner hidden">
+        <span class="local-banner-icon">📁</span>
+        <span id="local-banner-name" class="local-banner-name"></span>
+        <button id="local-close" class="local-close" title="Close local registry">&times;</button>
+      </div>
       <div id="url-error" class="error hidden"></div>
     </section>
 
@@ -76,13 +86,6 @@
               </div>
             </div>
 
-            <div id="file-viewer" class="file-viewer hidden">
-              <div class="file-viewer-header">
-                <h3 id="file-viewer-name"></h3>
-                <button id="file-viewer-close" class="close-btn">&times;</button>
-              </div>
-              <pre><code id="file-viewer-content"></code></pre>
-            </div>
           </div>
         </div>
       </div>

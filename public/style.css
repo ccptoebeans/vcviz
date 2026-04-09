@@ -67,10 +67,6 @@ main {
 }
 
 /* URL bar */
-.url-bar form {
-  display: flex;
-  gap: .5rem;
-}
 .url-bar input[type="text"] {
   flex: 1;
   background: var(--surface);
@@ -102,7 +98,59 @@ main {
   white-space: nowrap;
 }
 .url-bar button:hover { background: var(--accent-hover); }
+.source-row form { display: flex; gap: .5rem; }
 .error { color: var(--red); font-size: .85rem; margin-top: .4rem; }
+
+/* Drop zone */
+.drop-zone {
+  margin-top: .5rem;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: .75rem;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: .85rem;
+  transition: border-color .15s, background .15s, color .15s;
+  cursor: default;
+}
+.drop-zone.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+/* Local banner (shown when a folder is loaded) */
+.local-banner {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: .55rem 1rem;
+}
+.local-banner-icon { font-size: 1.1rem; }
+.local-banner-name {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: .9rem;
+  color: var(--accent);
+}
+.local-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 1.3rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: .1rem .3rem;
+  border-radius: var(--radius-sm);
+  transition: color .15s, background .15s;
+}
+.local-close:hover {
+  color: var(--text);
+  background: var(--surface2);
+}
 
 /* Content panels */
 .content { flex: 1; min-height: 0; }
@@ -286,10 +334,35 @@ main {
   color: var(--text-dim);
   font-family: var(--font);
 }
+.file-list li[data-type="dir"] .file-entry-name {
+  color: var(--accent);
+}
+.file-list li.expanded {
+  background: var(--accent-bg);
+}
+.file-list li.file-error {
+  color: var(--red);
+  font-size: .8rem;
+  cursor: default;
+}
+
+/* Inline file viewer (inserted into file list) */
+.inline-file-viewer {
+  list-style: none;
+  cursor: default;
+  padding-top: 0 !important;
+  padding-bottom: .3rem !important;
+  padding-right: .6rem !important;
+}
+.inline-file-viewer:hover {
+  background: none !important;
+}
+.file-list li.viewing {
+  background: var(--accent-bg);
+}
 
 /* File viewer */
 .file-viewer {
-  margin-top: 1.25rem;
   background: var(--surface2);
   border: 1px solid var(--border);
   border-radius: var(--radius);

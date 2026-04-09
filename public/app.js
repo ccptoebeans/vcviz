@@ -1,6 +1,5 @@
 (() => {
   const $ = (sel) => document.querySelector(sel);
-  const $$ = (sel) => document.querySelectorAll(sel);
 
   const els = {
     form: $("#registry-form"),
@@ -19,11 +18,12 @@
     detailDescription: $("#detail-description"),
     versionList: $("#version-list"),
     fileList: $("#file-list"),
-    fileViewer: $("#file-viewer"),
-    fileViewerName: $("#file-viewer-name"),
-    fileViewerClose: $("#file-viewer-close"),
-    fileViewerContent: $("#file-viewer-content"),
     loadingOverlay: $("#loading-overlay"),
+    dropZone: $("#drop-zone"),
+    sourceGithub: $("#source-github"),
+    localBanner: $("#local-banner"),
+    localBannerName: $("#local-banner-name"),
+    localClose: $("#local-close"),
   };
 
   let state = {
@@ -32,7 +32,13 @@
     ports: [],
     baseline: {},
     activePort: null,
+    localMode: false,
+    localTree: null, // { entries: Map, portNames: string[], folderName: string }
   };
+
+  // -------------------------------------------------------------------------
+  // Utilities
+  // -------------------------------------------------------------------------
 
   function showLoading(show) {
     els.loadingOverlay.classList.toggle("hidden", !show);
@@ -41,16 +47,6 @@
   function showError(msg) {
     els.urlError.textContent = msg;
     els.urlError.classList.toggle("hidden", !msg);
-  }
-
-  async function api(path) {
-    const sep = path.includes("?") ? "&" : "?";
-    let fullUrl = path + sep + "url=" + encodeURIComponent(state.registryUrl);
-    if (state.ref) fullUrl += "&ref=" + encodeURIComponent(state.ref);
-    const res = await fetch(fullUrl);
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Request failed");
-    return data;
   }
 
   function formatSize(bytes) {
@@ -64,6 +60,224 @@
     div.textContent = str;
     return div.innerHTML;
   }
+
+  // -------------------------------------------------------------------------
+  // GitHub API helpers (remote mode)
+  // -------------------------------------------------------------------------
+
+  async function api(path) {
+    const sep = path.includes("?") ? "&" : "?";
+    let fullUrl = path + sep + "url=" + encodeURIComponent(state.registryUrl);
+    if (state.ref) fullUrl += "&ref=" + encodeURIComponent(state.ref);
+    const res = await fetch(fullUrl);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Request failed");
+    return data;
+  }
+
+  // -------------------------------------------------------------------------
+  // Local filesystem via drag-and-drop (FileSystem API)
+  // -------------------------------------------------------------------------
+
+  function readAllEntries(dirReader) {
+    return new Promise((resolve, reject) => {
+      const all = [];
+      (function readBatch() {
+        dirReader.readEntries((entries) => {
+          if (entries.length === 0) { resolve(all); return; }
+          all.push(...entries);
+          readBatch();
+        }, reject);
+      })();
+    });
+  }
+
+  async function scanDirectoryTree(rootEntry) {
+    const entries = new Map();
+
+    async function walk(entry, parentPath) {
+      const entryPath = parentPath ? parentPath + "/" + entry.name : entry.name;
+      entries.set(entryPath, {
+        name: entry.name,
+        path: entryPath,
+        isDirectory: entry.isDirectory,
+        entry,
+      });
+      if (entry.isDirectory) {
+        const reader = entry.createReader();
+        const children = await readAllEntries(reader);
+        await Promise.all(children.map((child) => walk(child, entryPath)));
+      }
+    }
+
+    const reader = rootEntry.createReader();
+    const topLevel = await readAllEntries(reader);
+    await Promise.all(topLevel.map((child) => walk(child, "")));
+
+    const portNames = [];
+    for (const [p, e] of entries) {
+      if (e.isDirectory && p.startsWith("ports/") && p.split("/").length === 2) {
+        portNames.push(e.name);
+      }
+    }
+    portNames.sort();
+
+    return { entries, portNames, folderName: rootEntry.name };
+  }
+
+  function readFileEntry(fileEntry) {
+    return new Promise((resolve, reject) => {
+      fileEntry.file((file) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error("Failed to read file"));
+        reader.readAsText(file);
+      }, reject);
+    });
+  }
+
+  function getFileSize(fileEntry) {
+    return new Promise((resolve) => {
+      fileEntry.file((file) => resolve(file.size), () => resolve(null));
+    });
+  }
+
+  // Local data access functions -- mirror the server API shape
+
+  function localListPorts() {
+    return state.localTree.portNames;
+  }
+
+  function localGetPortFiles(portName) {
+    const prefix = "ports/" + portName + "/";
+    const files = [];
+    for (const [p, e] of state.localTree.entries) {
+      if (p.startsWith(prefix) && p.substring(prefix.length).indexOf("/") === -1) {
+        files.push({
+          name: e.name,
+          path: p,
+          type: e.isDirectory ? "dir" : "file",
+          entry: e.entry,
+        });
+      }
+    }
+    return files;
+  }
+
+  function localListDir(dirPath) {
+    const prefix = dirPath + "/";
+    const files = [];
+    for (const [p, e] of state.localTree.entries) {
+      if (p.startsWith(prefix) && p.substring(prefix.length).indexOf("/") === -1) {
+        files.push({
+          name: e.name,
+          path: p,
+          type: e.isDirectory ? "dir" : "file",
+          entry: e.entry,
+        });
+      }
+    }
+    return files;
+  }
+
+  async function localReadFile(filePath) {
+    const e = state.localTree.entries.get(filePath);
+    if (!e || e.isDirectory) throw new Error("File not found: " + filePath);
+    const content = await readFileEntry(e.entry);
+    return { name: e.name, path: filePath, content };
+  }
+
+  async function localGetBaseline() {
+    try {
+      const data = await localReadFile("versions/baseline.json");
+      return JSON.parse(data.content);
+    } catch {
+      return {};
+    }
+  }
+
+  async function localGetVersions(portName) {
+    const firstChar = portName[0].toLowerCase();
+    try {
+      const data = await localReadFile(`versions/${firstChar}-/${portName}.json`);
+      return JSON.parse(data.content);
+    } catch {
+      return { versions: [] };
+    }
+  }
+
+  async function localGetPortDependencies(portName) {
+    try {
+      const data = await localReadFile(`ports/${portName}/vcpkg.json`);
+      const manifest = JSON.parse(data.content);
+      const deps = [];
+      for (const d of manifest.dependencies || []) {
+        if (typeof d === "string") deps.push(d);
+        else if (d && d.name) deps.push(d.name);
+      }
+      return [...new Set(deps)];
+    } catch {
+      return [];
+    }
+  }
+
+  async function localBuildDepGraph(portName, maxDepth) {
+    const registryPorts = new Set(state.localTree.portNames);
+    const nodes = new Map();
+    const edges = [];
+    const queue = [{ port: portName, depth: 0 }];
+    const visited = new Set();
+
+    while (queue.length > 0) {
+      const { port, depth } = queue.shift();
+      if (visited.has(port)) continue;
+      visited.add(port);
+
+      const inRegistry = registryPorts.has(port);
+      nodes.set(port, { id: port, inRegistry, depth, isRoot: port === portName });
+
+      if (depth >= maxDepth || !inRegistry) continue;
+
+      const deps = await localGetPortDependencies(port);
+      for (const dep of deps) {
+        edges.push({ source: port, target: dep });
+        if (!visited.has(dep)) {
+          queue.push({ port: dep, depth: depth + 1 });
+        }
+      }
+    }
+
+    return { root: portName, nodes: Array.from(nodes.values()), edges };
+  }
+
+  // -------------------------------------------------------------------------
+  // UI mode switching
+  // -------------------------------------------------------------------------
+
+  function enterLocalMode(folderName) {
+    state.localMode = true;
+    els.sourceGithub.classList.add("hidden");
+    els.dropZone.classList.add("hidden");
+    els.localBanner.classList.remove("hidden");
+    els.localBannerName.textContent = folderName;
+  }
+
+  function exitLocalMode() {
+    state.localMode = false;
+    state.localTree = null;
+    state.ports = [];
+    state.baseline = {};
+    state.activePort = null;
+    els.sourceGithub.classList.remove("hidden");
+    els.dropZone.classList.remove("hidden");
+    els.localBanner.classList.add("hidden");
+    els.content.classList.add("hidden");
+    showError("");
+  }
+
+  // -------------------------------------------------------------------------
+  // Rendering
+  // -------------------------------------------------------------------------
 
   function renderPortList(filter = "") {
     const lc = filter.toLowerCase();
@@ -85,33 +299,35 @@
       .join("");
   }
 
-  function isLocalPath(source) {
-    if (!source) return false;
-    if (source.match(/^https?:\/\//)) return false;
-    return true;
+  function renderFileEntries(container, files, depth) {
+    const html = files.map((f) => {
+      const isDir = f.type === "dir";
+      return `<li data-path="${escapeHtml(f.path)}" data-type="${isDir ? "dir" : "file"}" style="padding-left:${1 + depth * 1.2}rem">
+        <span class="file-icon">${isDir ? "📁" : "📄"}</span>
+        <span class="file-entry-name">${escapeHtml(f.name)}</span>
+        ${f.size != null ? `<span class="file-size">${formatSize(f.size)}</span>` : ""}
+      </li>`;
+    }).join("");
+    container.insertAdjacentHTML("beforeend", html);
   }
 
-  async function loadRegistry() {
-    const url = els.urlInput.value.trim();
-    if (!url) { showError("Please enter a GitHub URL or local path."); return; }
+  // -------------------------------------------------------------------------
+  // Loading registries
+  // -------------------------------------------------------------------------
 
-    const local = isLocalPath(url);
-    if (!local && !url.match(/github\.com\/[^/]+\/[^/]+/)) {
-      showError("Enter a valid GitHub repository URL or a local filesystem path.");
+  async function loadGithubRegistry() {
+    const url = els.urlInput.value.trim();
+    if (!url) { showError("Please enter a GitHub URL."); return; }
+    if (!url.match(/github\.com\/[^/]+\/[^/]+/)) {
+      showError("Enter a valid GitHub repository URL.");
       return;
     }
 
     showError("");
     showLoading(true);
     state.registryUrl = url;
-    state.ref = local ? "" : els.refInput.value.trim();
+    state.ref = els.refInput.value.trim();
     state.activePort = null;
-
-    if (local) {
-      els.refInput.style.display = "none";
-    } else {
-      els.refInput.style.display = "";
-    }
 
     try {
       const [portData, baselineData] = await Promise.all([
@@ -120,14 +336,12 @@
       ]);
 
       state.ports = portData.ports || [];
-
       const bl = baselineData.default || baselineData;
       state.baseline = bl || {};
 
       els.content.classList.remove("hidden");
       els.portDetail.classList.add("hidden");
       els.detailPlaceholder.classList.remove("hidden");
-      els.fileViewer.classList.add("hidden");
 
       renderPortList();
     } catch (err) {
@@ -137,35 +351,87 @@
     }
   }
 
+  async function loadLocalRegistry(rootEntry) {
+    showError("");
+    showLoading(true);
+
+    try {
+      state.localTree = await scanDirectoryTree(rootEntry);
+
+      if (state.localTree.portNames.length === 0) {
+        showError("No ports/ directory found in the dropped folder.");
+        state.localTree = null;
+        showLoading(false);
+        return;
+      }
+
+      state.ports = state.localTree.portNames;
+      state.activePort = null;
+
+      enterLocalMode(state.localTree.folderName);
+
+      const baselineData = await localGetBaseline();
+      const bl = baselineData.default || baselineData;
+      state.baseline = bl || {};
+
+      els.content.classList.remove("hidden");
+      els.portDetail.classList.add("hidden");
+      els.detailPlaceholder.classList.remove("hidden");
+
+      renderPortList();
+    } catch (err) {
+      showError("Failed to read folder: " + err.message);
+    } finally {
+      showLoading(false);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Port detail
+  // -------------------------------------------------------------------------
+
   async function selectPort(name) {
     state.activePort = name;
     renderPortList(els.portSearch.value);
 
     els.detailPlaceholder.classList.add("hidden");
     els.portDetail.classList.remove("hidden");
-    els.fileViewer.classList.add("hidden");
+    closeInlineViewer();
 
     els.detailName.textContent = name;
     els.detailVersion.textContent = "";
-    els.detailDescription.textContent = "Loading…";
+    els.detailDescription.textContent = "Loading\u2026";
     els.versionList.innerHTML = "";
     els.fileList.innerHTML = "";
 
     try {
-      const [portData, versionData] = await Promise.all([
-        api(`/api/ports/${encodeURIComponent(name)}`),
-        api(`/api/versions/${encodeURIComponent(name)}`).catch(() => ({ versions: [] })),
-      ]);
+      let portFiles, versionData;
 
-      // Try to read vcpkg.json for description
-      const vcpkgJsonFile = portData.files.find((f) => f.name === "vcpkg.json");
+      if (state.localMode) {
+        portFiles = localGetPortFiles(name);
+        versionData = await localGetVersions(name);
+      } else {
+        const [pd, vd] = await Promise.all([
+          api(`/api/ports/${encodeURIComponent(name)}`),
+          api(`/api/versions/${encodeURIComponent(name)}`).catch(() => ({ versions: [] })),
+        ]);
+        portFiles = pd.files;
+        versionData = vd;
+      }
+
       let description = "";
       let currentVersion = "";
+      const vcpkgJsonFile = portFiles.find((f) => f.name === "vcpkg.json");
 
       if (vcpkgJsonFile) {
         try {
-          const fileData = await api(`/api/file?path=${encodeURIComponent(vcpkgJsonFile.path)}`);
-          const manifest = JSON.parse(fileData.content);
+          let fileContent;
+          if (state.localMode) {
+            fileContent = (await localReadFile(vcpkgJsonFile.path)).content;
+          } else {
+            fileContent = (await api(`/api/file?path=${encodeURIComponent(vcpkgJsonFile.path)}`)).content;
+          }
+          const manifest = JSON.parse(fileContent);
           description = manifest.description || "";
           if (Array.isArray(description)) description = description.join(" ");
           currentVersion =
@@ -173,23 +439,19 @@
         } catch {}
       }
 
-      // Baseline version
       const blVer = state.baseline[name];
       if (!currentVersion && blVer) {
-        currentVersion =
-          blVer["baseline"] || blVer["version-string"] || blVer["version"] || "";
+        currentVersion = blVer["baseline"] || blVer["version-string"] || blVer["version"] || "";
       }
 
       els.detailVersion.textContent = currentVersion ? "v" + currentVersion : "";
       els.detailDescription.textContent = description || "No description available.";
 
-      // Version history
       const versions = versionData.versions || [];
       if (versions.length > 0) {
         els.versionList.innerHTML = versions
           .map((v, i) => {
-            const ver =
-              v.version || v["version-string"] || v["version-semver"] || v["version-date"] || "?";
+            const ver = v.version || v["version-string"] || v["version-semver"] || v["version-date"] || "?";
             const port = v["port-version"] != null ? `#${v["port-version"]}` : "";
             return `<span class="version-tag${i === 0 ? " latest" : ""}">${escapeHtml(ver)}${port}</span>`;
           })
@@ -198,40 +460,176 @@
         els.versionList.innerHTML = '<span class="version-tag">No version history found</span>';
       }
 
-      // Files
-      els.fileList.innerHTML = portData.files
-        .map(
-          (f) =>
-            `<li data-path="${escapeHtml(f.path)}">
-              <span class="file-icon">${f.type === "dir" ? "📁" : "📄"}</span>
-              <span>${escapeHtml(f.name)}</span>
-              ${f.size != null ? `<span class="file-size">${formatSize(f.size)}</span>` : ""}
-            </li>`
-        )
-        .join("");
+      renderFileEntries(els.fileList, portFiles, 0);
     } catch (err) {
       els.detailDescription.textContent = "Error loading port: " + err.message;
     }
   }
 
-  async function viewFile(filePath) {
-    els.fileViewer.classList.remove("hidden");
-    els.fileViewerName.textContent = filePath.split("/").pop();
-    els.fileViewerContent.textContent = "Loading…";
+  // -------------------------------------------------------------------------
+  // File / directory browsing
+  // -------------------------------------------------------------------------
+
+  async function toggleDirectory(li) {
+    const dirPath = li.dataset.path;
+
+    if (li.classList.contains("expanded")) {
+      li.classList.remove("expanded");
+      li.querySelector(".file-icon").textContent = "📁";
+      while (li.nextElementSibling && li.nextElementSibling.dataset.path &&
+             li.nextElementSibling.dataset.path.startsWith(dirPath + "/")) {
+        li.nextElementSibling.remove();
+      }
+      return;
+    }
+
+    li.classList.add("expanded");
+    li.querySelector(".file-icon").textContent = "📂";
+
+    const depth = Math.round((parseFloat(li.style.paddingLeft) - 1) / 1.2) + 1;
 
     try {
-      const data = await api(`/api/file?path=${encodeURIComponent(filePath)}`);
-      els.fileViewerContent.textContent = data.content;
-      els.fileViewer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      let files;
+      if (state.localMode) {
+        files = localListDir(dirPath);
+      } else {
+        const data = await api(`/api/dir?path=${encodeURIComponent(dirPath)}`);
+        files = data.files || [];
+      }
+
+      const temp = document.createElement("ul");
+      renderFileEntries(temp, files, depth);
+      const items = Array.from(temp.children);
+      let insertAfter = li;
+      for (const item of items) {
+        insertAfter.after(item);
+        insertAfter = item;
+      }
     } catch (err) {
-      els.fileViewerContent.textContent = "Error: " + err.message;
+      const errLi = document.createElement("li");
+      errLi.style.paddingLeft = `${1 + depth * 1.2}rem`;
+      errLi.className = "file-error";
+      errLi.textContent = "Error: " + err.message;
+      li.after(errLi);
     }
   }
 
+  function closeInlineViewer() {
+    const existing = els.fileList.querySelector(".inline-file-viewer");
+    if (existing) {
+      const parentLi = existing.previousElementSibling;
+      if (parentLi) parentLi.classList.remove("viewing");
+      existing.remove();
+    }
+  }
+
+  async function viewFile(filePath, clickedLi) {
+    const alreadyOpen = clickedLi.classList.contains("viewing");
+    closeInlineViewer();
+    if (alreadyOpen) return;
+
+    clickedLi.classList.add("viewing");
+
+    const viewerLi = document.createElement("li");
+    viewerLi.className = "inline-file-viewer";
+    viewerLi.style.paddingLeft = clickedLi.style.paddingLeft;
+
+    viewerLi.innerHTML = `
+      <div class="file-viewer">
+        <div class="file-viewer-header">
+          <h3>${escapeHtml(filePath.split("/").pop())}</h3>
+          <button class="close-btn" title="Close">&times;</button>
+        </div>
+        <pre><code>Loading\u2026</code></pre>
+      </div>`;
+
+    clickedLi.after(viewerLi);
+
+    viewerLi.querySelector(".close-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      clickedLi.classList.remove("viewing");
+      viewerLi.remove();
+    });
+
+    try {
+      let content;
+      if (state.localMode) {
+        content = (await localReadFile(filePath)).content;
+      } else {
+        content = (await api(`/api/file?path=${encodeURIComponent(filePath)}`)).content;
+      }
+      viewerLi.querySelector("code").textContent = content;
+      viewerLi.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } catch (err) {
+      viewerLi.querySelector("code").textContent = "Error: " + err.message;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Drag-and-drop handlers
+  // -------------------------------------------------------------------------
+
+  function setupDropZone() {
+    const dz = els.dropZone;
+    let dragCounter = 0;
+
+    document.addEventListener("dragenter", (e) => {
+      if (!e.dataTransfer.types.includes("Files")) return;
+      e.preventDefault();
+      dragCounter++;
+      dz.classList.add("drag-over");
+    });
+
+    document.addEventListener("dragleave", (e) => {
+      dragCounter--;
+      if (dragCounter <= 0) {
+        dragCounter = 0;
+        dz.classList.remove("drag-over");
+      }
+    });
+
+    document.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer.types.includes("Files")) return;
+      e.preventDefault();
+    });
+
+    document.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dragCounter = 0;
+      dz.classList.remove("drag-over");
+
+      if (state.localMode) return;
+
+      const items = e.dataTransfer.items;
+      if (!items || items.length === 0) return;
+
+      const item = items[0];
+      if (item.kind !== "file") return;
+
+      const entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
+      if (!entry || !entry.isDirectory) {
+        showError("Please drop a folder, not a file.");
+        return;
+      }
+
+      loadLocalRegistry(entry);
+    });
+  }
+
+  // -------------------------------------------------------------------------
   // Event listeners
+  // -------------------------------------------------------------------------
+
   els.form.addEventListener("submit", (e) => {
     e.preventDefault();
-    loadRegistry();
+    loadGithubRegistry();
+  });
+
+  els.urlInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      loadGithubRegistry();
+    }
   });
 
   els.portSearch.addEventListener("input", () => {
@@ -244,19 +642,25 @@
   });
 
   els.fileList.addEventListener("click", (e) => {
+    if (e.target.closest(".inline-file-viewer")) return;
     const li = e.target.closest("li[data-path]");
-    if (li) viewFile(li.dataset.path);
-  });
-
-  els.fileViewerClose.addEventListener("click", () => {
-    els.fileViewer.classList.add("hidden");
-  });
-
-  // Allow pressing Enter in URL input
-  els.urlInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      loadRegistry();
+    if (!li) return;
+    if (li.dataset.type === "dir") {
+      toggleDirectory(li);
+    } else {
+      viewFile(li.dataset.path, li);
     }
   });
+
+  els.localClose.addEventListener("click", exitLocalMode);
+
+  setupDropZone();
+
+  // Expose state for depgraph.js
+  window.vcviz = {
+    getState: () => state,
+    localReadFile,
+    localGetPortDependencies,
+    localBuildDepGraph,
+  };
 })();

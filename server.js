@@ -129,12 +129,27 @@ function localGetPortFiles(rootDir, portName) {
 function localReadFile(rootDir, filePath) {
   const full = path.join(rootDir, filePath);
   if (!fs.existsSync(full)) return null;
+  const stat = fs.statSync(full);
+  if (stat.isDirectory()) return { isDir: true };
   return {
     name: path.basename(full),
     path: filePath,
     content: fs.readFileSync(full, "utf-8"),
-    size: fs.statSync(full).size,
+    size: stat.size,
   };
+}
+
+function localListDir(rootDir, dirPath) {
+  const full = path.join(rootDir, dirPath);
+  if (!fs.existsSync(full)) return null;
+  const stat = fs.statSync(full);
+  if (!stat.isDirectory()) return null;
+  return fs.readdirSync(full, { withFileTypes: true }).map((d) => ({
+    name: d.name,
+    path: dirPath.replace(/\\/g, "/") + "/" + d.name,
+    type: d.isDirectory() ? "dir" : "file",
+    size: d.isFile() ? fs.statSync(path.join(full, d.name)).size : null,
+  }));
 }
 
 function localGetVersions(rootDir, portName) {
@@ -244,6 +259,34 @@ app.get("/api/ports/:name", async (req, res) => {
   }
 });
 
+app.get("/api/dir", async (req, res) => {
+  const { url, path: dirPath, ref } = req.query;
+  if (!url || !dirPath) return res.status(400).json({ error: "Missing url or path parameter" });
+
+  if (isLocalPath(url)) {
+    const rootDir = resolveLocalPath(url);
+    const entries = localListDir(rootDir, dirPath);
+    if (!entries) return res.status(404).json({ error: "Directory not found" });
+    return res.json({ path: dirPath, files: entries });
+  }
+
+  const parsed = parseGithubUrl(url);
+  if (!parsed) return res.status(400).json({ error: "Invalid GitHub URL" });
+
+  try {
+    const refParam = ref ? `?ref=${encodeURIComponent(ref)}` : "";
+    const contents = await githubFetch(
+      `/repos/${parsed.owner}/${parsed.repo}/contents/${encodeURIComponent(dirPath).replace(/%2F/g, "/")}${refParam}`
+    );
+    const files = Array.isArray(contents)
+      ? contents.map((f) => ({ name: f.name, path: f.path, type: f.type, size: f.size }))
+      : [];
+    res.json({ path: dirPath, files });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || "Failed to list directory" });
+  }
+});
+
 app.get("/api/file", async (req, res) => {
   const { url, path: filePath, ref } = req.query;
   if (!url || !filePath) return res.status(400).json({ error: "Missing url or path parameter" });
@@ -252,6 +295,7 @@ app.get("/api/file", async (req, res) => {
     const rootDir = resolveLocalPath(url);
     const data = localReadFile(rootDir, filePath);
     if (!data) return res.status(404).json({ error: "File not found" });
+    if (data.isDir) return res.status(400).json({ error: "Path is a directory, not a file" });
     return res.json(data);
   }
 
@@ -266,6 +310,8 @@ app.get("/api/file", async (req, res) => {
     if (content.encoding === "base64" && content.content) {
       const decoded = Buffer.from(content.content, "base64").toString("utf-8");
       res.json({ name: content.name, path: content.path, content: decoded, size: content.size });
+    } else if (Array.isArray(content)) {
+      return res.status(400).json({ error: "Path is a directory, not a file" });
     } else {
       res.json({ name: content.name, path: content.path, content: "", size: content.size });
     }

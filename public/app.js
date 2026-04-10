@@ -252,6 +252,46 @@
     return { root: portName, nodes: Array.from(nodes.values()), edges };
   }
 
+  // Cache: portName -> { featureName: [portA, portB, ...] }
+  let featureUsageCache = {};
+
+  async function localFindFeatureUsages(portName) {
+    if (featureUsageCache[portName]) return featureUsageCache[portName];
+
+    const usages = {};
+    for (const otherPort of state.localTree.portNames) {
+      if (otherPort === portName) continue;
+      const e = state.localTree.entries.get(`ports/${otherPort}/vcpkg.json`);
+      if (!e) continue;
+      try {
+        const content = await readFileEntry(e.entry);
+        const manifest = JSON.parse(content);
+        const checkDeps = (deps) => {
+          for (const dep of deps) {
+            if (typeof dep !== "object" || dep.name !== portName) continue;
+            for (const feat of dep.features || []) {
+              if (!usages[feat]) usages[feat] = new Set();
+              usages[feat].add(otherPort);
+            }
+          }
+        };
+        checkDeps(manifest.dependencies || []);
+        if (manifest.features) {
+          for (const fdata of Object.values(manifest.features)) {
+            checkDeps(fdata.dependencies || []);
+          }
+        }
+      } catch {}
+    }
+
+    const result = {};
+    for (const [feat, ports] of Object.entries(usages)) {
+      result[feat] = [...ports].sort();
+    }
+    featureUsageCache[portName] = result;
+    return result;
+  }
+
   // -------------------------------------------------------------------------
   // UI mode switching
   // -------------------------------------------------------------------------
@@ -270,6 +310,7 @@
     state.ports = [];
     state.baseline = {};
     state.activePort = null;
+    featureUsageCache = {};
     els.sourceGithub.classList.remove("hidden");
     els.dropZone.classList.remove("hidden");
     els.localBanner.classList.add("hidden");
@@ -478,12 +519,21 @@
             if (Array.isArray(desc)) desc = desc.join(" ");
             const deps = fdata.dependencies || [];
             const depNames = deps.map((d) => typeof d === "string" ? d : (d && d.name) || "").filter(Boolean);
+            const usagesHtml = state.localMode
+              ? `<div class="feature-usages">
+                  <button class="feature-usages-toggle" data-feature="${escapeHtml(fname)}" data-port="${escapeHtml(name)}">
+                    <span class="usages-arrow">&#9654;</span> Used by&hellip;
+                  </button>
+                  <div class="feature-usages-list hidden"></div>
+                </div>`
+              : "";
             return `<div class="feature-item">
               <div class="feature-header">
                 <span class="feature-name">${escapeHtml(fname)}</span>
                 ${depNames.length ? `<span class="feature-deps">${depNames.map((d) => escapeHtml(d)).join(", ")}</span>` : ""}
               </div>
               ${desc ? `<div class="feature-desc">${escapeHtml(desc)}</div>` : ""}
+              ${usagesHtml}
             </div>`;
           })
           .join("");
@@ -679,6 +729,48 @@
     } else {
       viewFile(li.dataset.path, li);
     }
+  });
+
+  els.featuresList.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".feature-usages-toggle");
+    if (!btn) return;
+    const listEl = btn.nextElementSibling;
+    const arrow = btn.querySelector(".usages-arrow");
+    const isOpen = !listEl.classList.contains("hidden");
+
+    if (isOpen) {
+      listEl.classList.add("hidden");
+      arrow.textContent = "\u25B6";
+      return;
+    }
+
+    if (!listEl.dataset.loaded) {
+      arrow.textContent = "\u23F3";
+      btn.disabled = true;
+      try {
+        const usages = await localFindFeatureUsages(btn.dataset.port);
+        const ports = usages[btn.dataset.feature] || [];
+        if (ports.length > 0) {
+          listEl.innerHTML = ports
+            .map((p) => `<span class="usage-port" data-port="${escapeHtml(p)}">${escapeHtml(p)}</span>`)
+            .join("");
+        } else {
+          listEl.innerHTML = '<span class="usage-none">No ports use this feature</span>';
+        }
+      } catch {
+        listEl.innerHTML = '<span class="usage-none">Error scanning registry</span>';
+      }
+      listEl.dataset.loaded = "1";
+      btn.disabled = false;
+    }
+
+    listEl.classList.remove("hidden");
+    arrow.textContent = "\u25BC";
+  });
+
+  els.featuresList.addEventListener("click", (e) => {
+    const portSpan = e.target.closest(".usage-port");
+    if (portSpan) selectPort(portSpan.dataset.port);
   });
 
   els.localClose.addEventListener("click", exitLocalMode);

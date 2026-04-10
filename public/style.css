@@ -340,6 +340,59 @@ main {
   line-height: 1.4;
 }
 
+/* Feature usages dropdown */
+.feature-usages {
+  margin-top: .3rem;
+}
+.feature-usages-toggle {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: .75rem;
+  cursor: pointer;
+  padding: .15rem 0;
+  font-family: var(--font);
+  transition: color .15s;
+}
+.feature-usages-toggle:hover {
+  color: var(--accent);
+}
+.feature-usages-toggle:disabled {
+  cursor: wait;
+}
+.usages-arrow {
+  display: inline-block;
+  font-size: .6rem;
+  margin-right: .2rem;
+  vertical-align: middle;
+}
+.feature-usages-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .3rem;
+  padding: .35rem 0 .1rem;
+}
+.usage-port {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: .15rem .45rem;
+  font-size: .75rem;
+  font-family: var(--mono);
+  color: var(--accent);
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.usage-port:hover {
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+.usage-none {
+  font-size: .75rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
 /* File list */
 .file-list {
   list-style: none;

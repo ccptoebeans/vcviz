@@ -59,6 +59,38 @@
     return div.innerHTML;
   }
 
+  function renderCmakeHighlight(text) {
+    return text.split("\n").map((line) => {
+      if (/^\s*#/.test(line)) {
+        return `<span class="cm-comment">${escapeHtml(line)}</span>`;
+      }
+
+      let esc = escapeHtml(line);
+
+      const strings = [];
+      esc = esc.replace(/"(?:[^"\\]|\\.)*"/g, (m) => {
+        strings.push(m);
+        return `\x00S${strings.length - 1}\x00`;
+      });
+
+      esc = esc.replace(/\$ENV\{[^}]*\}/g, '<span class="cm-var">$&</span>');
+      esc = esc.replace(/\$\{[^}]*\}/g, '<span class="cm-var">$&</span>');
+
+      esc = esc.replace(/^(\s*)([\w]+)(\s*\()/, '$1<span class="cm-cmd">$2</span>$3');
+
+      esc = esc.replace(/(\s)(#.*)$/, '$1<span class="cm-comment">$2</span>');
+
+      esc = esc.replace(/\x00S(\d+)\x00/g, (_, idx) => {
+        let s = strings[parseInt(idx)];
+        s = s.replace(/\$ENV\{[^}]*\}/g, '<span class="cm-var">$&</span>');
+        s = s.replace(/\$\{[^}]*\}/g, '<span class="cm-var">$&</span>');
+        return `<span class="cm-string">${s}</span>`;
+      });
+
+      return esc;
+    }).join("\n");
+  }
+
   function renderDiffHighlight(text) {
     return text.split("\n").map((line) => {
       const esc = escapeHtml(line);
@@ -656,8 +688,11 @@
         content = (await api(`/api/file?path=${encodeURIComponent(filePath)}`)).content;
       }
       const codeEl = viewerLi.querySelector("code");
-      if (/\.(patch|diff)$/i.test(filePath)) {
+      const fileName = filePath.split("/").pop();
+      if (/\.(patch|diff)$/i.test(fileName)) {
         codeEl.innerHTML = renderDiffHighlight(content);
+      } else if (/\.cmake$/i.test(fileName) || fileName === "CMakeLists.txt") {
+        codeEl.innerHTML = renderCmakeHighlight(content);
       } else {
         codeEl.textContent = content;
       }

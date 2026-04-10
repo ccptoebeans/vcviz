@@ -59,6 +59,39 @@
     return div.innerHTML;
   }
 
+  function renderJsonHighlight(text) {
+    return text.split("\n").map((line) => {
+      let esc = escapeHtml(line);
+
+      // Property keys: "key":
+      esc = esc.replace(/^(\s*)("(?:[^"\\]|\\.)*")(\s*:)/,
+        '$1<span class="js-key">$2</span>$3');
+
+      // String values after colon
+      esc = esc.replace(/(:\s*)("(?:[^"\\]|\\.)*")/g,
+        '$1<span class="js-string">$2</span>');
+
+      // Bare strings in arrays (not already highlighted as key/value)
+      esc = esc.replace(/^(\s*)("(?:[^"\\]|\\.)*")(\s*[,\]]?\s*)$/,
+        (m, pre, str, post) => {
+          if (m.includes("js-key") || m.includes("js-string")) return m;
+          return `${pre}<span class="js-string">${str}</span>${post}`;
+        });
+
+      // Numbers
+      esc = esc.replace(/(:\s*)(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(\s*[,\]}]?\s*$)/,
+        '$1<span class="js-number">$2</span>$3');
+      esc = esc.replace(/^(\s*)(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(\s*[,\]]?\s*)$/,
+        '$1<span class="js-number">$2</span>$3');
+
+      // Booleans and null
+      esc = esc.replace(/(:\s*)(true|false|null)(\s*[,\]}]?\s*$)/,
+        '$1<span class="js-bool">$2</span>$3');
+
+      return esc;
+    }).join("\n");
+  }
+
   function renderCmakeHighlight(text) {
     return text.split("\n").map((line) => {
       if (/^\s*#/.test(line)) {
@@ -693,6 +726,8 @@
         codeEl.innerHTML = renderDiffHighlight(content);
       } else if (/\.cmake$/i.test(fileName) || fileName === "CMakeLists.txt") {
         codeEl.innerHTML = renderCmakeHighlight(content);
+      } else if (/\.json$/i.test(fileName)) {
+        codeEl.innerHTML = renderJsonHighlight(content);
       } else {
         codeEl.textContent = content;
       }

@@ -493,6 +493,20 @@ main {
   white-space: pre;
 }
 
+/* JSON syntax highlighting */
+.file-viewer code .js-key {
+  color: #79c0ff;
+}
+.file-viewer code .js-string {
+  color: #a5d6ff;
+}
+.file-viewer code .js-number {
+  color: #79c0ff;
+}
+.file-viewer code .js-bool {
+  color: #ff7b72;
+}
+
 /* CMake syntax highlighting */
 .file-viewer code .cm-comment {
   color: #8b949e;

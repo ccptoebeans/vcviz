@@ -59,6 +59,31 @@
     return div.innerHTML;
   }
 
+  function renderDiffHighlight(text) {
+    return text.split("\n").map((line) => {
+      const esc = escapeHtml(line);
+      if (line.startsWith("+++") || line.startsWith("---")) {
+        return `<span class="diff-meta">${esc}</span>`;
+      }
+      if (line.startsWith("@@")) {
+        return `<span class="diff-hunk">${esc}</span>`;
+      }
+      if (line.startsWith("diff ") || line.startsWith("index ") ||
+          line.startsWith("new file") || line.startsWith("deleted file") ||
+          line.startsWith("similarity") || line.startsWith("rename ") ||
+          line.startsWith("old mode") || line.startsWith("new mode")) {
+        return `<span class="diff-header">${esc}</span>`;
+      }
+      if (line.startsWith("+")) {
+        return `<span class="diff-add">${esc}</span>`;
+      }
+      if (line.startsWith("-")) {
+        return `<span class="diff-del">${esc}</span>`;
+      }
+      return `<span class="diff-ctx">${esc}</span>`;
+    }).join("\n");
+  }
+
   // -------------------------------------------------------------------------
   // Server API helper
   // -------------------------------------------------------------------------
@@ -630,7 +655,12 @@
       } else {
         content = (await api(`/api/file?path=${encodeURIComponent(filePath)}`)).content;
       }
-      viewerLi.querySelector("code").textContent = content;
+      const codeEl = viewerLi.querySelector("code");
+      if (/\.(patch|diff)$/i.test(filePath)) {
+        codeEl.innerHTML = renderDiffHighlight(content);
+      } else {
+        codeEl.textContent = content;
+      }
       viewerLi.scrollIntoView({ behavior: "smooth", block: "nearest" });
     } catch (err) {
       viewerLi.querySelector("code").textContent = "Error: " + err.message;

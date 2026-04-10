@@ -493,6 +493,42 @@ main {
   white-space: pre;
 }
 
+/* Diff / patch syntax highlighting */
+.file-viewer code .diff-add {
+  background: rgba(46, 160, 67, .18);
+  color: #3fb950;
+  display: inline-block;
+  width: 100%;
+}
+.file-viewer code .diff-del {
+  background: rgba(248, 81, 73, .18);
+  color: #f85149;
+  display: inline-block;
+  width: 100%;
+}
+.file-viewer code .diff-hunk {
+  color: #8b949e;
+  background: rgba(108, 140, 255, .12);
+  display: inline-block;
+  width: 100%;
+}
+.file-viewer code .diff-header {
+  color: #8b949e;
+  font-weight: 600;
+  display: inline-block;
+  width: 100%;
+}
+.file-viewer code .diff-meta {
+  color: #8b949e;
+  font-weight: 600;
+  display: inline-block;
+  width: 100%;
+}
+.file-viewer code .diff-ctx {
+  display: inline-block;
+  width: 100%;
+}
+
 /* Loading overlay */
 .loading-overlay {
   position: fixed;

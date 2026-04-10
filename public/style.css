@@ -302,6 +302,44 @@ main {
   color: var(--accent);
 }
 
+/* Features list */
+.features-list {
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+.feature-item {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: .45rem .7rem;
+}
+.feature-header {
+  display: flex;
+  align-items: baseline;
+  gap: .6rem;
+}
+.feature-name {
+  font-family: var(--mono);
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+.feature-deps {
+  font-size: .75rem;
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+.feature-deps::before {
+  content: "\2192 ";
+}
+.feature-desc {
+  font-size: .8rem;
+  color: var(--text-dim);
+  margin-top: .2rem;
+  line-height: 1.4;
+}
+
 /* File list */
 .file-list {
   list-style: none;

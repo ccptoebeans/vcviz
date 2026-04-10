@@ -17,6 +17,8 @@
     detailVersion: $("#detail-version"),
     detailDescription: $("#detail-description"),
     versionList: $("#version-list"),
+    featuresSection: $("#features-section"),
+    featuresList: $("#features-list"),
     fileList: $("#file-list"),
     loadingOverlay: $("#loading-overlay"),
     dropZone: $("#drop-zone"),
@@ -402,6 +404,8 @@
     els.detailVersion.textContent = "";
     els.detailDescription.textContent = "Loading\u2026";
     els.versionList.innerHTML = "";
+    els.featuresSection.classList.add("hidden");
+    els.featuresList.innerHTML = "";
     els.fileList.innerHTML = "";
 
     try {
@@ -423,6 +427,7 @@
       let currentVersion = "";
       const vcpkgJsonFile = portFiles.find((f) => f.name === "vcpkg.json");
 
+      let features = null;
       if (vcpkgJsonFile) {
         try {
           let fileContent;
@@ -436,6 +441,9 @@
           if (Array.isArray(description)) description = description.join(" ");
           currentVersion =
             manifest.version || manifest["version-string"] || manifest["version-semver"] || manifest["version-date"] || "";
+          if (manifest.features && typeof manifest.features === "object") {
+            features = manifest.features;
+          }
         } catch {}
       }
 
@@ -458,6 +466,27 @@
           .join("");
       } else {
         els.versionList.innerHTML = '<span class="version-tag">No version history found</span>';
+      }
+
+      // Features
+      if (features && Object.keys(features).length > 0) {
+        els.featuresSection.classList.remove("hidden");
+        els.featuresList.innerHTML = Object.entries(features)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([fname, fdata]) => {
+            let desc = fdata.description || "";
+            if (Array.isArray(desc)) desc = desc.join(" ");
+            const deps = fdata.dependencies || [];
+            const depNames = deps.map((d) => typeof d === "string" ? d : (d && d.name) || "").filter(Boolean);
+            return `<div class="feature-item">
+              <div class="feature-header">
+                <span class="feature-name">${escapeHtml(fname)}</span>
+                ${depNames.length ? `<span class="feature-deps">${depNames.map((d) => escapeHtml(d)).join(", ")}</span>` : ""}
+              </div>
+              ${desc ? `<div class="feature-desc">${escapeHtml(desc)}</div>` : ""}
+            </div>`;
+          })
+          .join("");
       }
 
       renderFileEntries(els.fileList, portFiles, 0);

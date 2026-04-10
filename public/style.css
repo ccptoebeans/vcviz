@@ -67,38 +67,35 @@ main {
 }
 
 /* URL bar */
-.url-bar input[type="text"] {
+.source-row { display: flex; align-items: center; gap: .5rem; }
+.server-registry-label {
+  font-size: .85rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+#server-registry-select {
   flex: 1;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: .65rem 1rem;
+  padding: .55rem .8rem;
   color: var(--text);
-  font-size: .9rem;
-  font-family: var(--mono);
+  font-size: .85rem;
+  font-family: var(--font);
   outline: none;
+  cursor: pointer;
   transition: border-color .15s;
 }
-#registry-ref {
-  flex: 0 0 180px;
-}
-.url-bar input:focus {
+#server-registry-select:focus {
   border-color: var(--accent);
 }
-.url-bar button {
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius);
-  padding: .65rem 1.5rem;
-  font-size: .9rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background .15s;
-  white-space: nowrap;
+#server-registry-select option {
+  background: var(--surface);
+  color: var(--text);
 }
-.url-bar button:hover { background: var(--accent-hover); }
-.source-row form { display: flex; gap: .5rem; }
+#server-registry-select option:disabled {
+  color: var(--text-dim);
+}
 .error { color: var(--red); font-size: .85rem; margin-top: .4rem; }
 
 /* Drop zone */

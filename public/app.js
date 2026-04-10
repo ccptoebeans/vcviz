@@ -2,10 +2,6 @@
   const $ = (sel) => document.querySelector(sel);
 
   const els = {
-    form: $("#registry-form"),
-    urlInput: $("#registry-url"),
-    refInput: $("#registry-ref"),
-    loadBtn: $("#load-btn"),
     urlError: $("#url-error"),
     content: $("#content"),
     portList: $("#port-list"),
@@ -22,20 +18,20 @@
     fileList: $("#file-list"),
     loadingOverlay: $("#loading-overlay"),
     dropZone: $("#drop-zone"),
-    sourceGithub: $("#source-github"),
+    sourceServer: $("#source-server"),
+    serverRegistrySelect: $("#server-registry-select"),
     localBanner: $("#local-banner"),
     localBannerName: $("#local-banner-name"),
     localClose: $("#local-close"),
   };
 
   let state = {
-    registryUrl: "",
-    ref: "",
     ports: [],
     baseline: {},
     activePort: null,
     localMode: false,
-    localTree: null, // { entries: Map, portNames: string[], folderName: string }
+    localTree: null,
+    serverRegistryId: null,
   };
 
   // -------------------------------------------------------------------------
@@ -64,13 +60,12 @@
   }
 
   // -------------------------------------------------------------------------
-  // GitHub API helpers (remote mode)
+  // Server API helper
   // -------------------------------------------------------------------------
 
   async function api(path) {
     const sep = path.includes("?") ? "&" : "?";
-    let fullUrl = path + sep + "url=" + encodeURIComponent(state.registryUrl);
-    if (state.ref) fullUrl += "&ref=" + encodeURIComponent(state.ref);
+    const fullUrl = path + sep + "registryId=" + encodeURIComponent(state.serverRegistryId);
     const res = await fetch(fullUrl);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Request failed");
@@ -298,7 +293,10 @@
 
   function enterLocalMode(folderName) {
     state.localMode = true;
-    els.sourceGithub.classList.add("hidden");
+    state.serverRegistryId = null;
+    featureUsageCache = {};
+    els.serverRegistrySelect.value = "";
+    els.sourceServer.classList.add("hidden");
     els.dropZone.classList.add("hidden");
     els.localBanner.classList.remove("hidden");
     els.localBannerName.textContent = folderName;
@@ -310,8 +308,10 @@
     state.ports = [];
     state.baseline = {};
     state.activePort = null;
+    state.serverRegistryId = null;
     featureUsageCache = {};
-    els.sourceGithub.classList.remove("hidden");
+    els.serverRegistrySelect.value = "";
+    els.sourceServer.classList.remove("hidden");
     els.dropZone.classList.remove("hidden");
     els.localBanner.classList.add("hidden");
     els.content.classList.add("hidden");
@@ -358,19 +358,13 @@
   // Loading registries
   // -------------------------------------------------------------------------
 
-  async function loadGithubRegistry() {
-    const url = els.urlInput.value.trim();
-    if (!url) { showError("Please enter a GitHub URL."); return; }
-    if (!url.match(/github\.com\/[^/]+\/[^/]+/)) {
-      showError("Enter a valid GitHub repository URL.");
-      return;
-    }
-
+  async function loadServerRegistry(registryId) {
     showError("");
     showLoading(true);
-    state.registryUrl = url;
-    state.ref = els.refInput.value.trim();
+    state.serverRegistryId = registryId;
     state.activePort = null;
+    state.localMode = false;
+    state.localTree = null;
 
     try {
       const [portData, baselineData] = await Promise.all([
@@ -389,6 +383,7 @@
       renderPortList();
     } catch (err) {
       showError(err.message);
+      state.serverRegistryId = null;
     } finally {
       showLoading(false);
     }
@@ -519,14 +514,12 @@
             if (Array.isArray(desc)) desc = desc.join(" ");
             const deps = fdata.dependencies || [];
             const depNames = deps.map((d) => typeof d === "string" ? d : (d && d.name) || "").filter(Boolean);
-            const usagesHtml = state.localMode
-              ? `<div class="feature-usages">
+            const usagesHtml = `<div class="feature-usages">
                   <button class="feature-usages-toggle" data-feature="${escapeHtml(fname)}" data-port="${escapeHtml(name)}">
                     <span class="usages-arrow">&#9654;</span> Used by&hellip;
                   </button>
                   <div class="feature-usages-list hidden"></div>
-                </div>`
-              : "";
+                </div>`;
             return `<div class="feature-item">
               <div class="feature-header">
                 <span class="feature-name">${escapeHtml(fname)}</span>
@@ -699,18 +692,6 @@
   // Event listeners
   // -------------------------------------------------------------------------
 
-  els.form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    loadGithubRegistry();
-  });
-
-  els.urlInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      loadGithubRegistry();
-    }
-  });
-
   els.portSearch.addEventListener("input", () => {
     renderPortList(els.portSearch.value);
   });
@@ -748,8 +729,14 @@
       arrow.textContent = "\u23F3";
       btn.disabled = true;
       try {
-        const usages = await localFindFeatureUsages(btn.dataset.port);
-        const ports = usages[btn.dataset.feature] || [];
+        let usages;
+        if (state.localMode) {
+          usages = await localFindFeatureUsages(btn.dataset.port);
+        } else if (state.serverRegistryId) {
+          const data = await api(`/api/feature-usages/${encodeURIComponent(btn.dataset.port)}`);
+          usages = data.usages || {};
+        }
+        const ports = (usages && usages[btn.dataset.feature]) || [];
         if (ports.length > 0) {
           listEl.innerHTML = ports
             .map((p) => `<span class="usage-port" data-port="${escapeHtml(p)}">${escapeHtml(p)}</span>`)
@@ -773,7 +760,40 @@
     if (portSpan) selectPort(portSpan.dataset.port);
   });
 
+  els.serverRegistrySelect.addEventListener("change", () => {
+    const id = els.serverRegistrySelect.value;
+    if (!id) return;
+    state.localMode = false;
+    state.localTree = null;
+    featureUsageCache = {};
+    els.localBanner.classList.add("hidden");
+    els.dropZone.classList.remove("hidden");
+    loadServerRegistry(id);
+  });
+
   els.localClose.addEventListener("click", exitLocalMode);
+
+  // On page load, populate the server registries dropdown
+  (async function populateServerRegistries() {
+    try {
+      const data = await fetch("/api/server-registries").then((r) => r.json());
+      for (const reg of data.registries || []) {
+        const opt = document.createElement("option");
+        opt.value = reg.id;
+        opt.textContent = reg.name;
+        if (reg.status !== "ready") {
+          opt.textContent += " (unavailable)";
+          opt.disabled = true;
+        }
+        els.serverRegistrySelect.appendChild(opt);
+      }
+      if ((data.registries || []).length === 0) {
+        els.sourceServer.classList.add("hidden");
+      }
+    } catch {
+      els.sourceServer.classList.add("hidden");
+    }
+  })();
 
   setupDropZone();
 

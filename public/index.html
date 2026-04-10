@@ -16,24 +16,11 @@
 
   <main>
     <section class="url-bar">
-      <div id="source-github" class="source-row">
-        <form id="registry-form">
-          <input
-            type="text"
-            id="registry-url"
-            placeholder="GitHub registry URL, e.g. https://github.com/microsoft/vcpkg"
-            spellcheck="false"
-            autocomplete="off"
-          />
-          <input
-            type="text"
-            id="registry-ref"
-            placeholder="Branch / tag"
-            spellcheck="false"
-            autocomplete="off"
-          />
-          <button type="submit" id="load-btn">Explore</button>
-        </form>
+      <div id="source-server" class="source-row">
+        <label class="server-registry-label" for="server-registry-select">Server registry</label>
+        <select id="server-registry-select">
+          <option value="">— select a pre-configured registry —</option>
+        </select>
       </div>
       <div id="drop-zone" class="drop-zone">
         <span class="drop-zone-text">or drop a local registry folder here</span>

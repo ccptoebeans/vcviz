@@ -53,14 +53,13 @@
 
       if (appState && appState.localMode) {
         data = await window.vcviz.localBuildDepGraph(portName, depth);
-      } else {
-        const url = document.getElementById("registry-url").value.trim();
-        const ref = document.getElementById("registry-ref").value.trim();
-        let apiUrl = `/api/depgraph/${encodeURIComponent(portName)}?depth=${depth}&url=${encodeURIComponent(url)}`;
-        if (ref) apiUrl += `&ref=${encodeURIComponent(ref)}`;
+      } else if (appState && appState.serverRegistryId) {
+        const apiUrl = `/api/depgraph/${encodeURIComponent(portName)}?depth=${depth}&registryId=${encodeURIComponent(appState.serverRegistryId)}`;
         const res = await fetch(apiUrl);
         data = await res.json();
         if (!res.ok) throw new Error(data.error || "Request failed");
+      } else {
+        throw new Error("No registry selected");
       }
 
       graphData = data;

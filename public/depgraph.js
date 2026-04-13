@@ -119,8 +119,8 @@
     rootLabel.textContent = portName;
     overlay.classList.remove("hidden");
     showStatus("Resolving dependency tree\u2026");
-    hierarchyMode = false;
-    hierarchyBtn.classList.remove("active");
+    hierarchyMode = true;
+    hierarchyBtn.classList.add("active");
 
     const depth = parseInt(depthSlider.value) || 4;
     const appState = window.vcviz && window.vcviz.getState();
@@ -142,6 +142,7 @@
       graphData = data;
       hideStatus();
       render(data);
+      applyHierarchyLayout();
     } catch (err) {
       showStatus("Error: " + err.message);
     }
@@ -302,8 +303,9 @@
     labelSel = gLabels.selectAll("text")
       .data(nodes)
       .join("text")
-      .attr("text-anchor", "middle")
-      .attr("dy", (d) => d.isRoot ? 28 : 22)
+      .attr("text-anchor", hierarchyMode ? "start" : "middle")
+      .attr("dx", hierarchyMode ? 18 : 0)
+      .attr("dy", hierarchyMode ? ".35em" : ((d) => d.isRoot ? 28 : 22))
       .attr("fill", (d) => d.isRoot ? COLORS.label : COLORS.labelDim)
       .attr("font-size", (d) => d.isRoot ? "13px" : "11px")
       .attr("font-weight", (d) => d.isRoot ? "600" : "400")

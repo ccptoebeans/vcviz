@@ -900,6 +900,7 @@
   // Expose state for depgraph.js
   window.vcviz = {
     getState: () => state,
+    selectPort,
     localReadFile,
     localGetPortDependencies,
     localBuildDepGraph,

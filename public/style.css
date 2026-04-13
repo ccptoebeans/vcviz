@@ -731,6 +731,32 @@ main {
   height: 100%;
 }
 
+/* Dependency node popup menu */
+.dep-popup {
+  position: fixed;
+  z-index: 300;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0,0,0,.4);
+  min-width: 140px;
+  overflow: hidden;
+}
+.dep-popup ul {
+  list-style: none;
+}
+.dep-popup li {
+  padding: .5rem .85rem;
+  font-size: .85rem;
+  color: var(--text);
+  cursor: pointer;
+  transition: background .1s, color .1s;
+}
+.dep-popup li:hover {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
 /* Utilities */
 .hidden { display: none !important; }
 

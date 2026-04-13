@@ -11,7 +11,7 @@
     bg: "#0f1117",
   };
 
-  let overlay, canvas, rootLabel, depthSlider, depthVal, hierarchyBtn, statusEl;
+  let overlay, canvas, rootLabel, depthSlider, depthVal, hierarchyBtn, statusEl, popupMenu;
   let simulation, svg, gAll, gEdges, gNodes, gLabels;
   let graphData = null;
   let currentRoot = null;
@@ -19,6 +19,9 @@
   let currentNodes = null;
   let currentEdges = null;
   let nodeSel, labelSel, linkSel;
+  let wasDragged = false;
+  let popupNode = null;
+  let lastZoomK = 1;
 
   function init() {
     overlay = document.getElementById("depgraph-overlay");
@@ -39,14 +42,62 @@
     });
     hierarchyBtn.addEventListener("click", toggleHierarchy);
 
+    popupMenu = document.createElement("div");
+    popupMenu.id = "dependencyNodePopupMenu";
+    popupMenu.className = "dep-popup hidden";
+    popupMenu.innerHTML = '<ul></ul>';
+    document.body.appendChild(popupMenu);
+
+    overlay.addEventListener("click", (e) => {
+      if (!popupMenu.contains(e.target)) {
+        hidePopup();
+      }
+    });
+
     document.getElementById("view-deps-btn").addEventListener("click", () => {
       const name = document.getElementById("detail-name").textContent;
       if (name) open(name);
     });
   }
 
+  function hidePopup() {
+    popupMenu.classList.add("hidden");
+    popupNode = null;
+  }
+
+  function updatePopupPosition() {
+    if (!popupNode || !svg) return;
+    const t = d3.zoomTransform(svg.node());
+    const screenX = t.applyX(popupNode.x);
+    const screenY = t.applyY(popupNode.y);
+    const canvasRect = canvas.getBoundingClientRect();
+    popupMenu.style.left = (canvasRect.left + screenX + 16) + "px";
+    popupMenu.style.top = (canvasRect.top + screenY) + "px";
+  }
+
+  function showPopup(portName, nodeData) {
+    const ul = popupMenu.querySelector("ul");
+    ul.innerHTML = "";
+
+    const goItem = document.createElement("li");
+    goItem.textContent = "Go to port";
+    goItem.addEventListener("click", () => {
+      hidePopup();
+      close();
+      if (window.vcviz && window.vcviz.selectPort) {
+        window.vcviz.selectPort(portName);
+      }
+    });
+    ul.appendChild(goItem);
+
+    popupNode = nodeData;
+    updatePopupPosition();
+    popupMenu.classList.remove("hidden");
+  }
+
   function toggleHierarchy() {
     if (!currentNodes || !simulation) return;
+    hidePopup();
     hierarchyMode = !hierarchyMode;
     hierarchyBtn.classList.toggle("active", hierarchyMode);
 
@@ -157,6 +208,7 @@
     currentEdges = null;
     hierarchyMode = false;
     hierarchyBtn.classList.remove("active");
+    hidePopup();
   }
 
   function showStatus(msg) {
@@ -228,7 +280,17 @@
 
     zoom = d3.zoom()
       .scaleExtent([0.1, 5])
-      .on("zoom", (event) => gAll.attr("transform", event.transform));
+      .on("zoom", (event) => {
+        gAll.attr("transform", event.transform);
+        if (popupNode) {
+          if (event.sourceEvent && event.transform.k !== lastZoomK) {
+            hidePopup();
+          } else {
+            updatePopupPosition();
+          }
+        }
+        lastZoomK = event.transform.k;
+      });
 
     svg.call(zoom);
 
@@ -360,6 +422,12 @@
         .attr("marker-end", "url(#arrowhead)");
     });
 
+    nodeSel.on("click", (event, d) => {
+      if (wasDragged) { wasDragged = false; return; }
+      event.stopPropagation();
+      showPopup(d.id, d);
+    });
+
     simulation.on("tick", () => {
       linkSel
         .attr("x1", (d) => d.source.x)
@@ -369,6 +437,8 @@
 
       nodeSel.attr("transform", (d) => `translate(${d.x},${d.y})`);
       labelSel.attr("x", (d) => d.x).attr("y", (d) => d.y);
+
+      if (popupNode) updatePopupPosition();
     });
 
     simulation.on("end", () => zoomToFit(nodes));
@@ -411,6 +481,7 @@
     d3.select(this).attr("cursor", "grabbing");
   }
   function dragged(event, d) {
+    wasDragged = true;
     d.fx = event.x;
     d.fy = event.y;
   }

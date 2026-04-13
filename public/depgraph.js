@@ -58,7 +58,7 @@
   }
 
   function applyHierarchyLayout() {
-    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
 
     const layers = new Map();
     currentNodes.forEach((n) => {
@@ -68,21 +68,28 @@
     });
 
     const sortedDepths = Array.from(layers.keys()).sort((a, b) => a - b);
-    const layerSpacing = 120;
-    const startY = 100;
+    const columnSpacing = 200;
+    const startX = 100;
 
-    sortedDepths.forEach((depth, layerIdx) => {
-      const nodesInLayer = layers.get(depth);
-      nodesInLayer.sort((a, b) => a.id.localeCompare(b.id));
-      const count = nodesInLayer.length;
-      const layerWidth = Math.max(count * 140, 200);
-      const startX = (width / 2) - (layerWidth / 2) + 70;
+    sortedDepths.forEach((depth, colIdx) => {
+      const nodesInCol = layers.get(depth);
+      nodesInCol.sort((a, b) => a.id.localeCompare(b.id));
+      const count = nodesInCol.length;
+      const colHeight = Math.max(count * 40, 100);
+      const startY = (height / 2) - (colHeight / 2) + 20;
 
-      nodesInLayer.forEach((n, i) => {
-        n.fx = startX + i * (layerWidth / count);
-        n.fy = startY + layerIdx * layerSpacing;
+      nodesInCol.forEach((n, i) => {
+        n.fx = startX + colIdx * columnSpacing;
+        n.fy = startY + i * (colHeight / count);
       });
     });
+
+    // Shift labels to the right of nodes in hierarchy mode
+    labelSel
+      .transition().duration(400)
+      .attr("text-anchor", "start")
+      .attr("dx", 18)
+      .attr("dy", ".35em");
 
     simulation.alpha(0.3).restart();
     setTimeout(() => {
@@ -96,6 +103,13 @@
       n.fx = null;
       n.fy = null;
     });
+
+    labelSel
+      .transition().duration(400)
+      .attr("text-anchor", "middle")
+      .attr("dx", 0)
+      .attr("dy", (d) => d.isRoot ? 28 : 22);
+
     simulation.alpha(0.6).restart();
     setTimeout(() => zoomToFit(currentNodes), 2500);
   }

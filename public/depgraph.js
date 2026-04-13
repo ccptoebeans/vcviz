@@ -11,10 +11,14 @@
     bg: "#0f1117",
   };
 
-  let overlay, canvas, rootLabel, depthSlider, depthVal, statusEl;
+  let overlay, canvas, rootLabel, depthSlider, depthVal, hierarchyBtn, statusEl;
   let simulation, svg, gAll, gEdges, gNodes, gLabels;
   let graphData = null;
   let currentRoot = null;
+  let hierarchyMode = false;
+  let currentNodes = null;
+  let currentEdges = null;
+  let nodeSel, labelSel, linkSel;
 
   function init() {
     overlay = document.getElementById("depgraph-overlay");
@@ -22,6 +26,7 @@
     rootLabel = document.getElementById("depgraph-root-name");
     depthSlider = document.getElementById("depgraph-depth");
     depthVal = document.getElementById("depgraph-depth-val");
+    hierarchyBtn = document.getElementById("depgraph-hierarchy");
     statusEl = document.getElementById("depgraph-status");
 
     document.getElementById("depgraph-close").addEventListener("click", close);
@@ -32,6 +37,7 @@
     depthSlider.addEventListener("change", () => {
       if (currentRoot) open(currentRoot);
     });
+    hierarchyBtn.addEventListener("click", toggleHierarchy);
 
     document.getElementById("view-deps-btn").addEventListener("click", () => {
       const name = document.getElementById("detail-name").textContent;
@@ -39,11 +45,68 @@
     });
   }
 
+  function toggleHierarchy() {
+    if (!currentNodes || !simulation) return;
+    hierarchyMode = !hierarchyMode;
+    hierarchyBtn.classList.toggle("active", hierarchyMode);
+
+    if (hierarchyMode) {
+      applyHierarchyLayout();
+    } else {
+      releaseHierarchyLayout();
+    }
+  }
+
+  function applyHierarchyLayout() {
+    const width = canvas.clientWidth;
+
+    const layers = new Map();
+    currentNodes.forEach((n) => {
+      const d = n.depth || 0;
+      if (!layers.has(d)) layers.set(d, []);
+      layers.get(d).push(n);
+    });
+
+    const sortedDepths = Array.from(layers.keys()).sort((a, b) => a - b);
+    const layerSpacing = 120;
+    const startY = 100;
+
+    sortedDepths.forEach((depth, layerIdx) => {
+      const nodesInLayer = layers.get(depth);
+      nodesInLayer.sort((a, b) => a.id.localeCompare(b.id));
+      const count = nodesInLayer.length;
+      const layerWidth = Math.max(count * 140, 200);
+      const startX = (width / 2) - (layerWidth / 2) + 70;
+
+      nodesInLayer.forEach((n, i) => {
+        n.fx = startX + i * (layerWidth / count);
+        n.fy = startY + layerIdx * layerSpacing;
+      });
+    });
+
+    simulation.alpha(0.3).restart();
+    setTimeout(() => {
+      simulation.stop();
+      zoomToFit(currentNodes);
+    }, 600);
+  }
+
+  function releaseHierarchyLayout() {
+    currentNodes.forEach((n) => {
+      n.fx = null;
+      n.fy = null;
+    });
+    simulation.alpha(0.6).restart();
+    setTimeout(() => zoomToFit(currentNodes), 2500);
+  }
+
   async function open(portName) {
     currentRoot = portName;
     rootLabel.textContent = portName;
     overlay.classList.remove("hidden");
     showStatus("Resolving dependency tree\u2026");
+    hierarchyMode = false;
+    hierarchyBtn.classList.remove("active");
 
     const depth = parseInt(depthSlider.value) || 4;
     const appState = window.vcviz && window.vcviz.getState();
@@ -75,6 +138,10 @@
     if (simulation) simulation.stop();
     canvas.innerHTML = "";
     currentRoot = null;
+    currentNodes = null;
+    currentEdges = null;
+    hierarchyMode = false;
+    hierarchyBtn.classList.remove("active");
   }
 
   function showStatus(msg) {
@@ -87,10 +154,11 @@
 
   function recenter() {
     if (!svg || !gAll) return;
-    svg.transition().duration(500).call(
-      zoom.transform,
-      d3.zoomIdentity
-    );
+    if (currentNodes) {
+      zoomToFit(currentNodes);
+    } else {
+      svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+    }
   }
 
   let zoom;
@@ -106,7 +174,6 @@
       .attr("width", width)
       .attr("height", height);
 
-    // Defs for arrow markers and glow filter
     const defs = svg.append("defs");
 
     defs.append("marker")
@@ -155,7 +222,6 @@
     gNodes = gAll.append("g").attr("class", "nodes");
     gLabels = gAll.append("g").attr("class", "labels");
 
-    // Build node/edge data for D3
     const nodeMap = new Map();
     data.nodes.forEach((n) => nodeMap.set(n.id, { ...n }));
     const nodes = Array.from(nodeMap.values());
@@ -163,7 +229,9 @@
       .filter((e) => nodeMap.has(e.source) && nodeMap.has(e.target))
       .map((e) => ({ source: e.source, target: e.target }));
 
-    // Force simulation
+    currentNodes = nodes;
+    currentEdges = edges;
+
     simulation = d3.forceSimulation(nodes)
       .force("link", d3.forceLink(edges).id((d) => d.id).distance(100))
       .force("charge", d3.forceManyBody().strength(-300))
@@ -172,19 +240,17 @@
       .force("x", d3.forceX(width / 2).strength(0.04))
       .force("y", d3.forceY(height / 2).strength(0.04));
 
-    // Edges
-    const linkSel = gEdges.selectAll("line")
+    linkSel = gEdges.selectAll("line")
       .data(edges)
       .join("line")
       .attr("stroke", COLORS.edge)
       .attr("stroke-width", 1.2)
       .attr("marker-end", "url(#arrowhead)");
 
-    // Node circles
     const nodeRadius = (d) => d.isRoot ? 14 : (d.inRegistry ? 9 : 8);
     const nodeColor = (d) => d.isRoot ? COLORS.root : (d.inRegistry ? COLORS.internal : COLORS.external);
 
-    const nodeSel = gNodes.selectAll("g")
+    nodeSel = gNodes.selectAll("g")
       .data(nodes)
       .join("g")
       .attr("cursor", "grab")
@@ -193,7 +259,6 @@
         .on("drag", dragged)
         .on("end", dragEnded));
 
-    // Outer glow ring for root
     nodeSel.filter((d) => d.isRoot)
       .append("circle")
       .attr("r", 20)
@@ -203,7 +268,6 @@
       .attr("stroke-opacity", 0.3)
       .attr("filter", "url(#glow)");
 
-    // Main circle
     nodeSel.append("circle")
       .attr("r", nodeRadius)
       .attr("fill", nodeColor)
@@ -211,7 +275,6 @@
       .attr("stroke-width", (d) => d.inRegistry ? 0 : 2)
       .attr("stroke-dasharray", (d) => d.inRegistry ? "" : "3,2");
 
-    // External badge (small "?" for non-registry deps)
     nodeSel.filter((d) => !d.inRegistry && !d.isRoot)
       .append("text")
       .attr("text-anchor", "middle")
@@ -222,8 +285,7 @@
       .attr("pointer-events", "none")
       .text("?");
 
-    // Labels
-    const labelSel = gLabels.selectAll("text")
+    labelSel = gLabels.selectAll("text")
       .data(nodes)
       .join("text")
       .attr("text-anchor", "middle")
@@ -235,7 +297,6 @@
       .attr("pointer-events", "none")
       .text((d) => d.id);
 
-    // Hover highlight: dim everything except hovered node and its direct connections
     nodeSel.on("mouseenter", (event, d) => {
       const connected = new Set();
       connected.add(d.id);
@@ -294,7 +355,6 @@
       labelSel.attr("x", (d) => d.x).attr("y", (d) => d.y);
     });
 
-    // After simulation settles, zoom-to-fit
     simulation.on("end", () => zoomToFit(nodes));
     setTimeout(() => zoomToFit(nodes), 2500);
   }
@@ -340,12 +400,13 @@
   }
   function dragEnded(event, d) {
     if (!event.active) simulation.alphaTarget(0);
-    d.fx = null;
-    d.fy = null;
+    if (!hierarchyMode) {
+      d.fx = null;
+      d.fy = null;
+    }
     d3.select(this).attr("cursor", "grab");
   }
 
-  // Expose open for external calls
   window.depgraph = { open };
 
   if (document.readyState === "loading") {

@@ -671,6 +671,11 @@ main {
   background: var(--accent-bg);
   color: var(--text);
 }
+.depgraph-btn.active {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent);
+}
 .depgraph-btn-close {
   font-size: 1.2rem;
   line-height: 1;

@@ -8,9 +8,17 @@ Explore any vcpkg registry by providing its GitHub URL or a path to a local clon
 
 ## Quick start
 
+You can run this project locally, quite simply, by using this
 ```bash
 npm install
 npm start
+```
+
+Or you can launch using our dockerfile (based on alpine and node 25) like 
+
+```bash
+docker build -t vcviz .
+docker run --rm -p 3000:3000 vcviz
 ```
 
 Open [http://localhost:3000](http://localhost:3000) and enter a registry source:

@@ -1,0 +1,6 @@
+node_modules
+.git
+cloned-registries
+test-registry
+test_output.txt
+*.md
